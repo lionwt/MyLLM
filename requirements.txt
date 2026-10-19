@@ -1,0 +1,4 @@
+# torch-directml only ships .dev wheels and is built against PyTorch 2.4.1.
+# pip ignores those pre-releases for a specifier like torch_directml>=0.1.0.
+torch==2.4.1
+

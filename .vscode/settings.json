@@ -1,0 +1,6 @@
+{
+  "python.terminal.activateEnvironment": false,
+  "terminal.integrated.env.windows": {
+    "MSYS2_PATH_TYPE": "inherit"
+  }
+}
