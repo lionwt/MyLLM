@@ -6,6 +6,17 @@ from generate import generate
 from train import train
 
 
+def str_to_bool(value):
+    if isinstance(value, bool):
+        return value
+    lowered = str(value).strip().lower()
+    if lowered in ("true", "1", "yes"):
+        return True
+    if lowered in ("false", "0", "no"):
+        return False
+    raise argparse.ArgumentTypeError("expected true or false")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="data")
@@ -25,16 +36,17 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--prompt", default="Once upon a time")
     parser.add_argument("--prompts", action="append", default=None)
-    parser.add_argument("--new-tokens", type=int, default=150)
+    parser.add_argument("--new-tokens", type=int, default=200)
     parser.add_argument("--device", default="cuda", choices=["auto", "cpu", "cuda"])
+    parser.add_argument("--resume", type=str_to_bool, default=False, metavar="true/false")
     parser.add_argument("--checkpoint", default="best", choices=["best", "last"])
-    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--temperatures", default="0,0.5,0.8,1.0")
-    parser.add_argument("--top-k", type=int, default=40)
+    parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--top-p", type=float, default=None)
-    parser.add_argument("--repetition-penalty", type=float, default=1.0)
+    parser.add_argument("--repetition-penalty", type=float, default=1.1)
     parser.add_argument("--penalty-window", type=int, default=64)
-    parser.add_argument("--no-repeat-ngram", type=int, default=0)
+    parser.add_argument("--no-repeat-ngram", type=int, default=3)
     parser.add_argument("--mode", choices=["train", "generate", "eval"], default="train")
     args = parser.parse_args()
     if args.mode == "train":

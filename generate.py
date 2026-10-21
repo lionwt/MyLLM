@@ -28,13 +28,13 @@ def generate(
     model,
     tok,
     prompt,
-    new_tokens=150,
-    temperature=0.8,
-    top_k=40,
+    new_tokens=200,
+    temperature=0.6,
+    top_k=20,
     top_p=None,
-    repetition_penalty=1.0,
+    repetition_penalty=1.1,
     penalty_window=64,
-    no_repeat_ngram=0,
+    no_repeat_ngram=3,
     seed=None,
 ):
     if temperature < 0:

@@ -28,7 +28,11 @@ def resolve_device(preference="cuda"):
     preference = (preference or "cuda").lower()
     if preference == "cpu":
         return torch.device("cpu")
-    if preference in ("cuda", "auto"):
+    if preference == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        return torch.device("cpu")
+    if preference == "cuda":
         return _require_cuda()
     raise ValueError(f"Unknown device preference: {preference}")
 
@@ -40,11 +44,13 @@ def describe_device(device=None):
     return str(device)
 
 
-def save_checkpoint(path, model, config, **meta):
+def save_checkpoint(path, model, config, optimizer=None, **meta):
     payload = {
         "model": {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()},
         "config": config,
     }
+    if optimizer is not None:
+        payload["optimizer"] = optimizer.state_dict()
     payload.update(meta)
     torch.save(payload, path)
 

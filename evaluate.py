@@ -7,7 +7,7 @@ from device import describe_device, load_checkpoint, resolve_device
 from generate import generate
 from model import MiniGPT
 from tokenizer import ByteBPE
-from train import estimate_loss, sample_windows
+from train import _strip_train_sentences, estimate_loss, sample_windows
 
 
 def _ngrams(ids, n):
@@ -110,7 +110,10 @@ def load_split_texts(data_dir, output_dir):
     if split_path.exists():
         split = json.loads(split_path.read_text(encoding="utf-8"))
         train_texts = [(data / name).read_text(encoding="utf-8") for name in split["train"]]
-        val_texts = [(data / name).read_text(encoding="utf-8") for name in split["val"]]
+        val_texts = _strip_train_sentences(
+            [(data / name).read_text(encoding="utf-8") for name in split["val"]],
+            train_texts,
+        )
         return train_texts, val_texts, split
     paths = sorted(data.glob("*.txt"))
     texts = [p.read_text(encoding="utf-8") for p in paths]
@@ -163,7 +166,7 @@ def run_suite(args):
         ]
         prompts = list(dict.fromkeys(prompts))
     temperatures = parse_temperatures(getattr(args, "temperatures", "0,0.5,0.8,1.0"))
-    new_tokens = getattr(args, "new_tokens", 150)
+    new_tokens = getattr(args, "new_tokens", 200)
     memo = MemorizationIndex(train_texts, val_texts, tok)
     runs = []
     print(f"device: {describe_device(device)} checkpoint: {checkpoint_name}.pt", flush=True)
@@ -175,7 +178,7 @@ def run_suite(args):
             for controls in (False, True):
                 kwargs = dict(
                     temperature=temperature,
-                    top_k=getattr(args, "top_k", 40),
+                    top_k=getattr(args, "top_k", 20),
                     top_p=getattr(args, "top_p", None),
                     repetition_penalty=1.2 if controls else 1.0,
                     no_repeat_ngram=3 if controls else 0,
