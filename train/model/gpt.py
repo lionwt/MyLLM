@@ -1,10 +1,15 @@
+"""Decoder-only transformer components used by MiniGPT."""
+
 import torch
 from torch import nn
 import torch.nn.functional as F
 
 
 class CausalAttention(nn.Module):
+    """Multi-head self-attention restricted to current and previous tokens."""
+
     def __init__(self, dim, heads, dropout):
+        """Create attention projections for a model width divisible by ``heads``."""
         super().__init__()
         assert dim % heads == 0
         self.heads = heads
@@ -15,10 +20,12 @@ class CausalAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout)
 
     def forward(self, x):
+        """Apply masked self-attention to a ``(batch, time, dim)`` tensor."""
         b, t, c = x.shape
         q, k, v = self.qkv(x).chunk(3, dim=-1)
 
         def split(z):
+            """Expose the head dimension for parallel attention computation."""
             return z.view(b, t, self.heads, self.head_dim).transpose(1, 2)
 
         q, k, v = map(split, (q, k, v))
@@ -32,7 +39,10 @@ class CausalAttention(nn.Module):
 
 
 class Block(nn.Module):
+    """Pre-normalized transformer block with attention and feed-forward paths."""
+
     def __init__(self, dim, heads, dropout):
+        """Construct one residual transformer block."""
         super().__init__()
         self.ln1 = nn.LayerNorm(dim)
         self.attn = CausalAttention(dim, heads, dropout)
@@ -45,12 +55,16 @@ class Block(nn.Module):
         )
 
     def forward(self, x):
+        """Apply attention and feed-forward residual updates."""
         x = x + self.attn(self.ln1(x))
         return x + self.ff(self.ln2(x))
 
 
 class MiniGPT(nn.Module):
+    """Small decoder-only GPT with learned positions and tied output weights."""
+
     def __init__(self, vocab_size, context=128, dim=256, heads=4, layers=4, dropout=0.1):
+        """Construct token embeddings and a stack of transformer blocks."""
         super().__init__()
         self.context = context
         self.token = nn.Embedding(vocab_size, dim)
@@ -62,12 +76,14 @@ class MiniGPT(nn.Module):
 
     @staticmethod
     def _init(module):
+        """Initialize linear and embedding weights with GPT-style values."""
         if isinstance(module, (nn.Linear, nn.Embedding)):
             nn.init.normal_(module.weight, mean=0, std=0.02)
             if isinstance(module, nn.Linear) and module.bias is not None:
                 nn.init.zeros_(module.bias)
 
     def forward(self, ids):
+        """Return next-token logits for each position in a token-ID batch."""
         b, t = ids.shape
         if t > self.context:
             raise ValueError("Input longer than context")

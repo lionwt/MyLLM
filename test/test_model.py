@@ -1,3 +1,5 @@
+"""Tests for Mini-GPT model behavior and checkpoints."""
+
 import sys
 import tempfile
 import unittest
@@ -9,14 +11,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from device import load_checkpoint, resolve_device, save_checkpoint
-from model import MiniGPT
+from train.device import resolve_device
+from train.io import load_checkpoint, save_checkpoint
+from train.model import MiniGPT
 
 
 CFG = dict(vocab_size=32, context=8, dim=16, heads=4, layers=1, dropout=0.0)
 
 
 class ModelTests(unittest.TestCase):
+    """Verify model outputs, weight tying, and checkpoint compatibility."""
+
     def test_no_separate_head_after_device_move(self):
         device = resolve_device("cpu" if not torch.cuda.is_available() else "cuda")
         model = MiniGPT(**CFG).to(device)

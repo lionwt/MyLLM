@@ -1,9 +1,10 @@
-import pickle
+"""PyTorch compute-device selection and diagnostics."""
 
 import torch
 
 
 def _cuda_status():
+    """Summarize the CUDA capabilities visible to the current PyTorch build."""
     return (
         f"torch={torch.__version__}, "
         f"cuda_built={torch.version.cuda!r}, "
@@ -12,6 +13,7 @@ def _cuda_status():
 
 
 def _require_cuda():
+    """Return the CUDA device or raise an actionable installation error."""
     if torch.cuda.is_available():
         return torch.device("cuda")
     raise RuntimeError(
@@ -25,6 +27,7 @@ def _require_cuda():
 
 
 def resolve_device(preference="cuda"):
+    """Resolve ``cpu``, ``cuda``, or ``auto`` into a PyTorch device."""
     preference = (preference or "cuda").lower()
     if preference == "cpu":
         return torch.device("cpu")
@@ -38,47 +41,8 @@ def resolve_device(preference="cuda"):
 
 
 def describe_device(device=None):
+    """Return a human-readable device description, including the GPU name."""
     device = torch.device(device) if device is not None else resolve_device()
     if device.type == "cuda":
         return f"{device} ({torch.cuda.get_device_name(device)})"
     return str(device)
-
-
-def save_checkpoint(path, model, config, optimizer=None, **meta):
-    payload = {
-        "model": {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()},
-        "config": config,
-    }
-    if optimizer is not None:
-        payload["optimizer"] = optimizer.state_dict()
-    payload.update(meta)
-    torch.save(payload, path)
-
-
-def _checkpoint_to_cpu(checkpoint):
-    state = checkpoint.get("model")
-    if isinstance(state, dict):
-        checkpoint["model"] = {
-            name: tensor.detach().cpu() if torch.is_tensor(tensor) else tensor
-            for name, tensor in state.items()
-        }
-    return checkpoint
-
-
-def _reject_legacy_checkpoint(checkpoint):
-    state = checkpoint.get("model")
-    if isinstance(state, dict) and "head.weight" in state:
-        raise ValueError(
-            "This checkpoint is from the old Mini-GPT version (tied head.weight). "
-            "Please retrain with the current code."
-        )
-
-
-def load_checkpoint(path):
-    try:
-        checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    except pickle.UnpicklingError:
-        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
-    checkpoint = _checkpoint_to_cpu(checkpoint)
-    _reject_legacy_checkpoint(checkpoint)
-    return checkpoint

@@ -1,20 +1,25 @@
+"""Evaluate generation quality, repetition, and training-data memorization."""
+
 import json
 import random
 from collections import Counter
 from pathlib import Path
 
-from device import describe_device, load_checkpoint, resolve_device
 from generate import generate
-from model import MiniGPT
-from tokenizer import ByteBPE
-from train import _strip_train_sentences, estimate_loss, sample_windows
+from train.dataset import sample_windows
+from train.device import describe_device, resolve_device
+from train.io import load_checkpoint, load_tokenizer
+from train.loss import estimate_loss
+from train.model import MiniGPT
 
 
 def _ngrams(ids, n):
+    """Return every contiguous token n-gram in ``ids``."""
     return [tuple(ids[i : i + n]) for i in range(len(ids) - n + 1)]
 
 
 def repetition_stats(ids):
+    """Measure token diversity and detect strongly repetitive generations."""
     ids = list(ids)
     total = len(ids)
     longest_run = 0
@@ -30,6 +35,7 @@ def repetition_stats(ids):
             longest_run = run
 
     def distinct(n):
+        """Compute the fraction of unique n-grams in this generation."""
         grams = _ngrams(ids, n)
         if not grams:
             return 0.0
@@ -54,6 +60,7 @@ def repetition_stats(ids):
 
 
 def longest_copy(text, corpus):
+    """Find the longest contiguous substring of ``text`` present in ``corpus``."""
     if not text or not corpus:
         return 0, ""
     n = len(text)
@@ -71,7 +78,10 @@ def longest_copy(text, corpus):
 
 
 class MemorizationIndex:
+    """Index training and validation text for generation-overlap measurements."""
+
     def __init__(self, train_texts, val_texts, tok):
+        """Build character corpora and token 8-gram lookup sets."""
         self.train_text = "".join(train_texts)
         self.val_text = "".join(val_texts)
         self.train_8grams = self._grams(train_texts, tok)
@@ -79,6 +89,7 @@ class MemorizationIndex:
 
     @staticmethod
     def _grams(texts, tok):
+        """Collect all token 8-grams from a sequence of documents."""
         grams = set()
         for text in texts:
             ids = tok.encode(text)
@@ -86,6 +97,7 @@ class MemorizationIndex:
         return grams
 
     def score(self, text, ids, split="train"):
+        """Score generated text against either the train or validation corpus."""
         corpus = self.train_text if split == "train" else self.val_text
         grams = self.train_8grams if split == "train" else self.val_8grams
         window = _ngrams(list(ids), 8)
@@ -98,6 +110,7 @@ class MemorizationIndex:
         }
 
     def compare(self, text, ids):
+        """Return overlap measurements against both dataset splits."""
         return {
             "train": self.score(text, ids, "train"),
             "val": self.score(text, ids, "val"),
@@ -105,24 +118,23 @@ class MemorizationIndex:
 
 
 def load_split_texts(data_dir, output_dir):
+    """Load texts from a saved split, falling back to all available documents."""
     split_path = Path(output_dir) / "split.json"
     data = Path(data_dir)
     if split_path.exists():
         split = json.loads(split_path.read_text(encoding="utf-8"))
         train_texts = [(data / name).read_text(encoding="utf-8") for name in split["train"]]
-        val_texts = _strip_train_sentences(
-            [(data / name).read_text(encoding="utf-8") for name in split["val"]],
-            train_texts,
-        )
+        val_texts = [(data / name).read_text(encoding="utf-8") for name in split["val"]]
         return train_texts, val_texts, split
     paths = sorted(data.glob("*.txt"))
     texts = [p.read_text(encoding="utf-8") for p in paths]
     return texts, texts[:1], {"train": [p.name for p in paths], "val": []}
 
 
-def load_trained(output, checkpoint_name, device):
-    tok = ByteBPE.load(f"{output}/tokenizer.json")
+def load_trained(output, checkpoint_name, device, token_path):
+    """Restore a tokenizer and trained model checkpoint for inference."""
     checkpoint = load_checkpoint(f"{output}/{checkpoint_name}.pt")
+    tok = load_tokenizer(token_path, checkpoint["config"]["vocab_size"])
     model = MiniGPT(**checkpoint["config"])
     model.load_state_dict(checkpoint["model"])
     model.to(device)
@@ -131,13 +143,15 @@ def load_trained(output, checkpoint_name, device):
 
 
 def parse_temperatures(text):
+    """Parse a comma-separated list of sampling temperatures."""
     return [float(part.strip()) for part in str(text).split(",") if part.strip()]
 
 
 def run_suite(args):
+    """Run validation and generation checks, then write an evaluation report."""
     device = resolve_device(getattr(args, "device", "auto"))
     checkpoint_name = getattr(args, "checkpoint", "best")
-    model, tok, checkpoint = load_trained(args.output, checkpoint_name, device)
+    model, tok, checkpoint = load_trained(args.output, checkpoint_name, device, args.token)
     train_texts, val_texts, split = load_split_texts(args.data, args.output)
     val_ids = [tok.encode(text) for text in val_texts]
     cfg = checkpoint["config"]

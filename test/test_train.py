@@ -1,3 +1,5 @@
+"""Tests for dataset splitting, sampling, epochs, and devices."""
+
 import random
 import sys
 import unittest
@@ -7,54 +9,49 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from device import resolve_device
-from train import _sentences, _weighted_choice, sample_windows, split_documents
+from train.dataset import (
+    ShuffledWindowEpochs,
+    sample_windows,
+    split_documents,
+    window_starts,
+)
+from train.device import resolve_device
 
 
 class SplitTests(unittest.TestCase):
-    def test_exact_duplicates_and_near_duplicates_stay_together(self):
-        random.seed(0)
-        paths = [Path(f"doc_{i}.txt") for i in range(4)]
-        texts = [
-            "The cat sat on the mat. The dog ran away.",
-            "The cat sat on the mat. The dog ran away.",
-            "A unique village story about a baker. She opened the shop at dawn.",
-            "The cat sat on the mat. The dog ran home later.",
-        ]
-        train_paths, val_paths, train_texts, val_texts = split_documents(
-            paths, texts, val_frac=0.5, threshold=0.4
-        )
-        names = {p.name for p in train_paths + val_paths}
-        self.assertEqual(len(names), 3)
-        cat_group = {"doc_0.txt", "doc_3.txt"}
-        side = "train" if any(p.name in cat_group for p in train_paths) else "val"
-        other = val_paths if side == "train" else train_paths
-        self.assertTrue(all(p.name not in cat_group for p in other))
+    """Verify document split coverage, bounds, and reproducibility."""
 
-    def test_validation_sentences_are_not_in_train(self):
-        random.seed(1)
-        paths = [Path("a.txt"), Path("b.txt"), Path("c.txt")]
-        texts = [
-            "Shared filler appears here. Alpha story sentence one. Alpha story sentence two.",
-            "Shared filler appears here. Beta story sentence one. Beta story sentence two.",
-            "Shared filler appears here. Gamma story sentence one. Gamma story sentence two.",
-        ]
-        _, _, train_texts, val_texts = split_documents(paths, texts, val_frac=0.34, threshold=0.99)
-        train_sents = set(_sentences(train_texts))
-        for sentence in _sentences(val_texts):
-            self.assertNotIn(sentence, train_sents)
+    def test_split_uses_every_document_once(self):
+        paths = [Path(f"doc_{i}.txt") for i in range(20)]
+        train_paths, val_paths = split_documents(paths, random.Random(0))
+        self.assertEqual(len(val_paths), 2)
+        self.assertEqual(sorted(train_paths + val_paths), sorted(paths))
+        self.assertNotEqual(train_paths + val_paths, paths)
+
+    def test_split_is_deterministic_for_a_seed(self):
+        paths = [Path(f"doc_{i}.txt") for i in range(20)]
+        self.assertEqual(
+            split_documents(paths, random.Random(5)),
+            split_documents(paths, random.Random(5)),
+        )
+
+    def test_split_keeps_at_least_one_train_and_val_document(self):
+        paths = [Path("a.txt"), Path("b.txt")]
+        train_paths, val_paths = split_documents(paths, random.Random(0), val_frac=0.9)
+        self.assertEqual((len(train_paths), len(val_paths)), (1, 1))
+        with self.assertRaises(ValueError):
+            split_documents(paths[:1], random.Random(0))
 
 
 class SamplingTests(unittest.TestCase):
+    """Verify random training-window sampling behavior."""
+
     def test_longer_document_is_chosen_more_often(self):
         rng = random.Random(0)
-        short = [0] * 20
-        long = [1] * 200
-        context = 8
+        docs = [[0] * 20, [1] * 200]
         counts = {0: 0, 1: 0}
-        for _ in range(4000):
-            seq = _weighted_choice([short, long], context, rng)
-            counts[seq[0]] += 1
+        for window in sample_windows(docs, 4000, 8, rng):
+            counts[window[0]] += 1
         self.assertGreater(counts[1], counts[0] * 5)
 
     def test_sample_windows_uses_valid_range(self):
@@ -67,7 +64,56 @@ class SamplingTests(unittest.TestCase):
             self.assertTrue(set(window) <= {3, 4})
 
 
+class EpochSamplingTests(unittest.TestCase):
+    """Verify shuffled epoch traversal and resumable progress."""
+
+    def test_window_starts_cover_every_valid_offset(self):
+        docs = [[0] * 5, [1] * 3, [2] * 10]
+        context = 4
+        self.assertEqual(
+            window_starts(docs, context),
+            [(0, 0), (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5)],
+        )
+
+    def test_window_starts_rejects_short_documents(self):
+        with self.assertRaises(ValueError):
+            window_starts([[0] * 4, [1] * 8], context=8)
+
+    def test_one_epoch_visits_each_start_once(self):
+        docs = [[0] * 12, [1] * 20]
+        context = 8
+        starts = window_starts(docs, context)
+        loader = ShuffledWindowEpochs(docs, context, batch_size=5, rng=random.Random(0))
+        seen = [loader.next_start() for _ in range(len(starts))]
+        self.assertEqual(sorted(seen), starts)
+        self.assertNotEqual(seen, starts)
+
+    def test_second_epoch_is_a_new_shuffle(self):
+        docs = [[0] * 30]
+        context = 8
+        starts = window_starts(docs, context)
+        loader = ShuffledWindowEpochs(docs, context, batch_size=4, rng=random.Random(1))
+        first = [loader.next_start() for _ in range(len(starts))]
+        second = [loader.next_start() for _ in range(len(starts))]
+        self.assertEqual(sorted(second), starts)
+        self.assertNotEqual(first, second)
+
+    def test_skip_batches_matches_consuming_batches(self):
+        docs = [[0] * 40, [1] * 25]
+        context = 8
+        skipped = ShuffledWindowEpochs(docs, context, batch_size=4, rng=random.Random(3))
+        consumed = ShuffledWindowEpochs(docs, context, batch_size=4, rng=random.Random(3))
+        for _ in range(7 * 4):
+            consumed.next_start()
+        skipped.skip_batches(7)
+        self.assertEqual(skipped.next_start(), consumed.next_start())
+        self.assertEqual(skipped.epoch, consumed.epoch)
+        self.assertEqual(skipped.pos, consumed.pos)
+
+
 class DeviceTests(unittest.TestCase):
+    """Verify automatic device selection remains usable."""
+
     def test_auto_never_raises(self):
         device = resolve_device("auto")
         self.assertIn(device.type, ("cpu", "cuda"))

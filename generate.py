@@ -1,8 +1,11 @@
+"""Autoregressive text generation and token-sampling controls."""
+
 import torch
 import torch.nn.functional as F
 
 
 def _apply_top_p(logits, top_p):
+    """Mask tokens outside the smallest probability mass exceeding ``top_p``."""
     sorted_logits, sorted_idx = torch.sort(logits, descending=True)
     probs = F.softmax(sorted_logits, dim=-1)
     cumsum = torch.cumsum(probs, dim=-1)
@@ -15,6 +18,7 @@ def _apply_top_p(logits, top_p):
 
 
 def _banned_tokens(ids, n):
+    """Find tokens that would repeat an n-gram ending at the current position."""
     prefix = tuple(ids[-(n - 1) :])
     banned = set()
     for i in range(len(ids) - n + 1):
@@ -37,6 +41,11 @@ def generate(
     no_repeat_ngram=3,
     seed=None,
 ):
+    """Generate a continuation from ``prompt`` using configurable sampling.
+
+    Returns the decoded full sequence and its token IDs, including the prompt.
+    A temperature of zero enables deterministic greedy decoding.
+    """
     if temperature < 0:
         raise ValueError("temperature must be non-negative")
     if seed is not None:

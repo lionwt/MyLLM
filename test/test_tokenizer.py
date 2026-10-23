@@ -1,3 +1,5 @@
+"""Tests for BPE tokenization and persistence."""
+
 import sys
 import tempfile
 import unittest
@@ -7,16 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tokenizer import ByteBPE
+from tokenizers.io import load_bpe, store_bpe
+from tokenizers.model.bpe import BPE, BPE_Meta
 
 
 class TokenizerTests(unittest.TestCase):
+    """Verify BPE round trips, boundaries, and stored state."""
+
     @classmethod
     def setUpClass(cls):
         cls.data_dir = ROOT / "data"
         cls.paths = sorted(cls.data_dir.glob("*.txt"))
         cls.texts = [path.read_text(encoding="utf-8") for path in cls.paths]
-        cls.tok = ByteBPE().train(cls.texts, vocab_size=384)
+        cls.tok = BPE(meta=BPE_Meta(vocab_size=384)).train(cls.texts)
 
     def test_roundtrip_empty_and_whitespace(self):
         for text in ("", "   ", "\n\n\t ", "hello\n\nworld"):
@@ -32,14 +37,16 @@ class TokenizerTests(unittest.TestCase):
             decoded = self.tok.decode(self.tok.encode(text))
             self.assertEqual(decoded, text, msg=path.name)
 
-    def test_save_load_encodings_match(self):
-        sample = self.texts[0][:800]
+    def test_store_load_encodings_match(self):
+        sample = self.texts[0][:800] + " cafe\u0301 — ✓ 日本"
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "tokenizer.json"
-            self.tok.save(path)
-            loaded = ByteBPE.load(path)
+            path = Path(tmp) / "bpe.json"
+            store_bpe(self.tok, path)
+            loaded = load_bpe(path)
         self.assertEqual(loaded.encode(sample), self.tok.encode(sample))
-        self.assertEqual(loaded.pattern, self.tok.pattern)
+        self.assertEqual(loaded.decode(loaded.encode(sample)), sample)
+        self.assertEqual(loaded.vocab, self.tok.vocab)
+        self.assertEqual(loaded.meta.pattern, self.tok.meta.pattern)
 
     def test_tokens_stay_inside_word_chunks(self):
         text = self.texts[0]

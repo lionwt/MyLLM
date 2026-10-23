@@ -1,3 +1,5 @@
+"""Run manual diagnostics for available GPU compute backends."""
+
 import subprocess
 import platform
 

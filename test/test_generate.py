@@ -1,3 +1,5 @@
+"""Tests for text generation and repetition detection."""
+
 import sys
 import unittest
 from pathlib import Path
@@ -10,8 +12,8 @@ if str(ROOT) not in sys.path:
 
 from evaluate import repetition_stats
 from generate import generate
-from model import MiniGPT
-from tokenizer import ByteBPE
+from train.model import MiniGPT
+from tokenizers.model.bpe import BPE, BPE_Meta
 
 
 class DummyTok:
@@ -43,8 +45,10 @@ class DummyModel:
 
 
 class GenerateTests(unittest.TestCase):
+    """Verify deterministic generation and anti-repetition safeguards."""
+
     def test_greedy_is_deterministic(self):
-        tok = ByteBPE().train(["Once upon a time a cat sat on the mat."], vocab_size=300)
+        tok = BPE(meta=BPE_Meta(vocab_size=300)).train(["Once upon a time a cat sat on the mat."])
         torch.manual_seed(0)
         model = MiniGPT(vocab_size=len(tok.vocab), context=16, dim=16, heads=4, layers=1, dropout=0.0)
         model.eval()
