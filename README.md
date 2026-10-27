@@ -23,7 +23,7 @@ Training, generation, and evaluation load it with `--token` (default `out/bpe.js
 ## Train
 
 ```bash
-python mini_gpt_from_scratch.py --mode train --device cuda --token out/bpe.json --dim 192 --heads 6 --layers 4 --dropout 0.1 --lr 1e-3 --batch 32 --steps 5000 --eval-every 100 --patience 10 --output out
+python train.py --device cuda --token out/bpe.json --dim 192 --heads 6 --layers 4 --dropout 0.1 --lr 1e-3 --batch 32 --steps 5000 --eval-every 100 --patience 10 --output out
 ```
 
 `--device` defaults to `cuda` and errors if CUDA is missing. `--device auto` uses CUDA when it is available and otherwise falls back to CPU. `--device cpu` is only for machines with no NVIDIA GPU.
@@ -31,7 +31,7 @@ python mini_gpt_from_scratch.py --mode train --device cuda --token out/bpe.json 
 Continue from a saved run with `--resume true`. That reloads `split.json`, the `--token` tokenizer, and `last.pt` (falling back to `best.pt`), then trains `--steps` more updates:
 
 ```bash
-python mini_gpt_from_scratch.py --mode train --resume true --token out/bpe.json --steps 2000 --lr 3e-4 --output out
+python train.py --resume true --token out/bpe.json --steps 2000 --lr 3e-4 --output out
 ```
 
 `--resume false` (the default) starts over and overwrites the split in `--output`.
@@ -46,7 +46,7 @@ Validation averages `--eval-batches` fixed batches so the printed `val_loss` is 
 ## Generate
 
 ```bash
-python mini_gpt_from_scratch.py --mode generate --prompt "Once upon a time" --token out/bpe.json --output out
+python generate.py --prompt "Once upon a time" --token out/bpe.json --output out
 ```
 
 Defaults are `--temperature 0.6`, `--top-k 20`, `--repetition-penalty 1.1`, `--no-repeat-ngram 3`, and `--new-tokens 200`. Other useful flags: `--checkpoint best|last`, `--top-p`, `--temperature 0` for greedy decoding.
@@ -54,7 +54,7 @@ Defaults are `--temperature 0.6`, `--top-k 20`, `--repetition-penalty 1.1`, `--n
 ## Evaluate
 
 ```bash
-python mini_gpt_from_scratch.py --mode eval --token out/bpe.json --output out --new-tokens 150
+python evaluate.py --token out/bpe.json --output out --new-tokens 150
 ```
 
 This reloads the saved split, recomputes validation loss, and generates each prompt at temperatures `0,0.5,0.8,1.0` with and without repetition controls (penalty 1.2 and no-repeat 3-gram). Results go to `eval_report.json`.

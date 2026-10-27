@@ -1,5 +1,6 @@
 """Evaluate generation quality, repetition, and training-data memorization."""
 
+import argparse
 import json
 import random
 from collections import Counter
@@ -235,3 +236,28 @@ def run_suite(args):
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print("Wrote", out)
     return report
+
+
+def main():
+    """Parse evaluation options and write an evaluation report."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", default="data")
+    parser.add_argument("--output", default="out")
+    parser.add_argument("--token", default="out/bpe.json")
+    parser.add_argument("--batch", type=int, default=64)
+    parser.add_argument("--eval-batches", type=int, default=20)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--prompt", default="Once upon a time")
+    parser.add_argument("--prompts", action="append", default=None)
+    parser.add_argument("--new-tokens", type=int, default=200)
+    parser.add_argument("--device", default="cuda", choices=["auto", "cpu", "cuda"])
+    parser.add_argument("--checkpoint", default="best", choices=["best", "last"])
+    parser.add_argument("--temperatures", default="0,0.6,0.8,1.0")
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument("--top-p", type=float, default=None)
+    args = parser.parse_args()
+    run_suite(args)
+
+
+if __name__ == "__main__":
+    main()

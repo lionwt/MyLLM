@@ -11,7 +11,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=str, default="data")
     parser.add_argument("--output", type=str, default="out")
-    parser.add_argument("--vocab-size", type=int, default=2048)
+    parser.add_argument("--vocab-size", type=int, default=4_029)
     parser.add_argument("--max-token-bytes", type=int, default=64)
     args = parser.parse_args()
 

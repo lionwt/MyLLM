@@ -1,5 +1,7 @@
 """Autoregressive text generation and token-sampling controls."""
 
+import argparse
+
 import torch
 import torch.nn.functional as F
 
@@ -85,3 +87,46 @@ def generate(
                 nxt = int(torch.multinomial(probs, 1).item())
         ids.append(nxt)
     return tok.decode(ids), ids
+
+
+def main():
+    """Parse generation options, load a checkpoint, and print sampled text."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", default="out")
+    parser.add_argument("--token", default="out/bpe.json")
+    parser.add_argument("--prompt", default="Once upon a time")
+    parser.add_argument("--new-tokens", type=int, default=200)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", default="cuda", choices=["auto", "cpu", "cuda"])
+    parser.add_argument("--checkpoint", default="best", choices=["best", "last"])
+    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument("--top-p", type=float, default=None)
+    parser.add_argument("--repetition-penalty", type=float, default=1.1)
+    parser.add_argument("--penalty-window", type=int, default=64)
+    parser.add_argument("--no-repeat-ngram", type=int, default=3)
+    args = parser.parse_args()
+
+    from evaluate import load_trained
+    from train.device import resolve_device
+
+    device = resolve_device(args.device)
+    model, tok, _ = load_trained(args.output, args.checkpoint, device, args.token)
+    text, _ = generate(
+        model,
+        tok,
+        args.prompt,
+        args.new_tokens,
+        temperature=args.temperature,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        repetition_penalty=args.repetition_penalty,
+        penalty_window=args.penalty_window,
+        no_repeat_ngram=args.no_repeat_ngram,
+        seed=args.seed,
+    )
+    print(text)
+
+
+if __name__ == "__main__":
+    main()

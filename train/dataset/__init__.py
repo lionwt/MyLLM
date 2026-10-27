@@ -1,6 +1,6 @@
 """Dataset splitting, encoding, and window-sampling utilities."""
 
-from train.dataset.encode import encode_texts
+from train.dataset.encode import LazyEncodedDocuments, encode_texts
 from train.dataset.split import load_split, read_texts, save_split, split_documents
 from train.dataset.windows import (
     ShuffledWindowEpochs,
@@ -11,6 +11,7 @@ from train.dataset.windows import (
 )
 
 __all__ = [
+    "LazyEncodedDocuments",
     "encode_texts",
     "load_split",
     "read_texts",

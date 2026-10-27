@@ -3,16 +3,16 @@
 import csv
 import os
 import random
+import time
 from pathlib import Path
 
 import torch
 from torch import nn
 
 from train.dataset import (
+    LazyEncodedDocuments,
     ShuffledWindowEpochs,
-    encode_texts,
     load_split,
-    read_texts,
     sample_windows,
     save_split,
     split_documents,
@@ -73,25 +73,15 @@ def _new_run(args):
     return cfg, tok, train_paths, val_paths, None, 0
 
 
-def _encode_split(tok, train_paths, val_paths):
-    """Read and tokenize both document splits while preserving boundaries."""
+def _lazy_split(tok, train_paths, val_paths):
+    """Wrap splits so files are tokenized on first use and then cached."""
     print(
-        f"Reading {len(train_paths) + len(val_paths)} texts "
+        f"Deferring encode of {len(train_paths) + len(val_paths)} texts "
         f"({len(train_paths)} train, {len(val_paths)} val)...",
         flush=True,
     )
-    train_texts = read_texts(train_paths)
-    val_texts = read_texts(val_paths)
-    print("Reading finished...", flush=True)
-    print("Encoding texts...", flush=True)
-    ids = encode_texts(tok, train_texts + val_texts, train_paths + val_paths)
-    train_ids = ids[: len(train_texts)]
-    val_ids = ids[len(train_texts) :]
-    print(
-        f"Encoding finished: {sum(map(len, train_ids))} train, "
-        f"{sum(map(len, val_ids))} val tokens...",
-        flush=True,
-    )
+    train_ids = LazyEncodedDocuments(train_paths, tok, name="train")
+    val_ids = LazyEncodedDocuments(val_paths, tok, name="val")
     return train_ids, val_ids
 
 
@@ -137,7 +127,7 @@ def train(args):
         cfg, tok, train_paths, val_paths, checkpoint, start_step = _resume_run(args)
     else:
         cfg, tok, train_paths, val_paths, checkpoint, start_step = _new_run(args)
-    train_ids, val_ids = _encode_split(tok, train_paths, val_paths)
+    train_ids, val_ids = _lazy_split(tok, train_paths, val_paths)
 
     train_loader = ShuffledWindowEpochs(
         train_ids, cfg["context"], args.batch, random.Random(args.seed)
@@ -145,16 +135,15 @@ def train(args):
     if start_step:
         train_loader.skip_batches(start_step)
     print(
-        f"train windows: {len(train_loader.starts)}, "
-        f"{len(train_loader.starts) / args.batch:.2f} steps/epoch",
+        f"train documents: {len(train_ids)}, val documents: {len(val_ids)}",
         flush=True,
     )
 
     eval_batches = getattr(args, "eval_batches", 20)
     eval_rng = random.Random(args.seed)
     n_eval_windows = eval_batches * args.batch
-    train_eval_windows = sample_windows(train_ids, n_eval_windows, cfg["context"], eval_rng)
-    val_eval_windows = sample_windows(val_ids, n_eval_windows, cfg["context"], eval_rng)
+    train_eval_windows = None
+    val_eval_windows = None
 
     model, optimizer, best_val = _build_model(cfg, args, device, checkpoint)
 
@@ -187,6 +176,7 @@ def train(args):
         )
 
     print(f"Training steps {start_step + 1}-{end_step}...", flush=True)
+    last_eval_time = time.perf_counter()
     for step in range(start_step + 1, end_step + 1):
         model.train()
         x, y = train_loader.next_batch(device)
@@ -196,11 +186,21 @@ def train(args):
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         if step % args.eval_every == 0 or step == start_step + 1 or step == end_step:
+            if train_eval_windows is None:
+                train_eval_windows = sample_windows(
+                    train_ids, n_eval_windows, cfg["context"], eval_rng
+                )
+                val_eval_windows = sample_windows(
+                    val_ids, n_eval_windows, cfg["context"], eval_rng
+                )
             train_eval = estimate_loss(model, train_eval_windows, cfg["vocab_size"], device, args.batch)
             val_eval = estimate_loss(model, val_eval_windows, cfg["vocab_size"], device, args.batch)
+            now = time.perf_counter()
+            elapsed = now - last_eval_time
+            last_eval_time = now
             lr = optimizer.param_groups[0]["lr"]
             print(
-                f"step {step:5d} train_loss={train_eval:.3f} val_loss={val_eval:.3f}",
+                f"step {step:5d} train_loss={train_eval:.3f} val_loss={val_eval:.3f} elapsed={elapsed:.1f}s",
                 flush=True,
             )
             with log_path.open("a", encoding="utf-8", newline="") as handle:

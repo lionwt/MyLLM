@@ -2,6 +2,7 @@
 
 import random
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from train.dataset import (
+    LazyEncodedDocuments,
     ShuffledWindowEpochs,
     sample_windows,
     split_documents,
@@ -109,6 +111,54 @@ class EpochSamplingTests(unittest.TestCase):
         self.assertEqual(skipped.next_start(), consumed.next_start())
         self.assertEqual(skipped.epoch, consumed.epoch)
         self.assertEqual(skipped.pos, consumed.pos)
+
+
+class _StubTokenizer:
+    """Map characters to ids so lazy encoding can be tested without BPE."""
+
+    def encode(self, text):
+        return [ord(ch) for ch in text]
+
+    def decode(self, ids):
+        return "".join(chr(i) for i in ids)
+
+
+class LazyEncodeTests(unittest.TestCase):
+    """Verify documents are tokenized on first access and then cached."""
+
+    def test_loads_each_file_once(self):
+        tok = _StubTokenizer()
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for i, text in enumerate(["aaaaaaa", "bbbbbbbbbb"]):
+                path = Path(tmp) / f"{i}.txt"
+                path.write_text(text, encoding="utf-8")
+                paths.append(path)
+            docs = LazyEncodedDocuments(paths, tok, name="train")
+            self.assertEqual(docs.loaded, 0)
+            first = docs[0]
+            self.assertEqual(first, [ord("a")] * 7)
+            self.assertEqual(docs.loaded, 1)
+            self.assertIs(docs[0], first)
+            self.assertEqual(docs.loaded, 1)
+            second = docs[1]
+            self.assertEqual(second, [ord("b")] * 10)
+            self.assertEqual(docs.loaded, 2)
+
+    def test_epoch_loader_does_not_encode_every_file_up_front(self):
+        tok = _StubTokenizer()
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for i in range(8):
+                path = Path(tmp) / f"{i}.txt"
+                path.write_text("x" * 20, encoding="utf-8")
+                paths.append(path)
+            docs = LazyEncodedDocuments(paths, tok)
+            loader = ShuffledWindowEpochs(docs, context=8, batch_size=2, rng=random.Random(0))
+            self.assertLess(docs.loaded, len(paths))
+            loader.next_start()
+            self.assertGreaterEqual(docs.loaded, 1)
+            self.assertLess(docs.loaded, len(paths))
 
 
 class DeviceTests(unittest.TestCase):
